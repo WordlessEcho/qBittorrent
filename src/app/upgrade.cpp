@@ -30,8 +30,10 @@
 
 #include <QtSystemDetection>
 #include <QCoreApplication>
+#include <QHostAddress>
 #include <QMetaEnum>
 
+#include "base/bittorrent/listeningaddresses.h"
 #include "base/bittorrent/sharelimits.h"
 #include "base/bittorrent/torrentcontentlayout.h"
 #include "base/logger.h"
@@ -48,7 +50,7 @@ using namespace Qt::Literals::StringLiterals;
 
 namespace
 {
-    const int MIGRATION_VERSION = 12;
+    const int MIGRATION_VERSION = 13;
     const QString MIGRATION_VERSION_KEY = u"Meta/MigrationVersion"_s;
 
     void exportWebUIHttpsFiles()
@@ -637,6 +639,40 @@ namespace
             settingsStorage->removeValue(oldKey2);
         }
     }
+
+    void migrateInterfaceAddressSetting()
+    {
+        auto *settingsStorage = SettingsStorage::instance();
+
+        const auto oldKey = u"BitTorrent/Session/InterfaceAddress"_s;
+        if (!settingsStorage->hasKey(oldKey))
+            return;
+
+        // The old setting held "" (all addresses), "0.0.0.0" (all IPv4 addresses),
+        // "::" (all IPv6 addresses) or one IP address
+        const auto oldValue = settingsStorage->loadValue<QString>(oldKey);
+        QString ipv4Address = BitTorrent::BIND_ALL_ADDRESSES;
+        QString ipv6Address = BitTorrent::BIND_ALL_ADDRESSES;
+        if (oldValue == u"0.0.0.0")
+        {
+            ipv6Address = BitTorrent::BIND_DISABLED;
+        }
+        else if (oldValue == u"::")
+        {
+            ipv4Address = BitTorrent::BIND_DISABLED;
+        }
+        else if (!oldValue.isEmpty())
+        {
+            const QHostAddress addr {oldValue};
+            ipv4Address = (addr.protocol() == QAbstractSocket::IPv4Protocol) ? addr.toString() : BitTorrent::BIND_DISABLED;
+            ipv6Address = (addr.protocol() == QAbstractSocket::IPv6Protocol) ? addr.toString() : BitTorrent::BIND_DISABLED;
+            // An invalid address could not be bound before, so both families stay disabled
+        }
+
+        settingsStorage->storeValue(u"BitTorrent/Session/InterfaceIPv4Address"_s, ipv4Address);
+        settingsStorage->storeValue(u"BitTorrent/Session/InterfaceIPv6Address"_s, ipv6Address);
+        settingsStorage->removeValue(oldKey);
+    }
 }
 
 bool upgrade()
@@ -697,6 +733,9 @@ bool upgrade()
 
         if (version < 12)
             migrateSearchSettingKeys();
+
+        if (version < 13)
+            migrateInterfaceAddressSetting();
 
         version = MIGRATION_VERSION;
     }

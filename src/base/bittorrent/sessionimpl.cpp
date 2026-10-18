@@ -109,6 +109,7 @@
 #include "extensiondata.h"
 #include "filesearcher.h"
 #include "filterparserthread.h"
+#include "listeningaddresses.h"
 #include "loadtorrentparams.h"
 #include "lttypecast.h"
 #include "nativesessionextension.h"
@@ -339,6 +340,30 @@ namespace
         return {};
     }
 #endif
+
+    BitTorrent::ListeningAddressesInput makeListeningAddressesInput(const QString &ifaceName
+        , const QString &ipv4Address, const QString &ipv6Address)
+    {
+        BitTorrent::ListeningAddressesInput input;
+        input.ifaceName = ifaceName;
+        input.ipv4Address = ipv4Address;
+        input.ipv6Address = ipv6Address;
+
+        if (ifaceName.isEmpty())
+        {
+            input.addresses = QNetworkInterface::allAddresses();
+        }
+        else
+        {
+            const QNetworkInterface iface = QNetworkInterface::interfaceFromName(ifaceName);
+            input.isIfaceValid = iface.isValid();
+            const QList<QNetworkAddressEntry> entries = iface.addressEntries();
+            for (const QNetworkAddressEntry &entry : entries)
+                input.addresses.append(entry.ip());
+        }
+
+        return input;
+    }
 
     constexpr lt::move_flags_t toNative(const MoveStorageMode mode)
     {
@@ -595,7 +620,8 @@ SessionImpl::SessionImpl(QObject *parent)
     , m_sslPort(BITTORRENT_SESSION_KEY(u"SSL/Port"_s), -1)
     , m_networkInterface(BITTORRENT_SESSION_KEY(u"Interface"_s))
     , m_networkInterfaceName(BITTORRENT_SESSION_KEY(u"InterfaceName"_s))
-    , m_networkInterfaceAddress(BITTORRENT_SESSION_KEY(u"InterfaceAddress"_s))
+    , m_networkInterfaceIPv4Address(BITTORRENT_SESSION_KEY(u"InterfaceIPv4Address"_s))
+    , m_networkInterfaceIPv6Address(BITTORRENT_SESSION_KEY(u"InterfaceIPv6Address"_s))
     , m_encryption(BITTORRENT_SESSION_KEY(u"Encryption"_s), 0)
     , m_maxActiveCheckingTorrents(BITTORRENT_SESSION_KEY(u"MaxActiveCheckingTorrents"_s), 1)
     , m_isProxyPeerConnectionsEnabled(BITTORRENT_SESSION_KEY(u"ProxyPeerConnections"_s), false)
@@ -2366,6 +2392,22 @@ void SessionImpl::applyNetworkInterfacesSettings(lt::settings_pack &settingsPack
         }
     }
 
+    // With a selected interface, `outgoingInterfaces` is empty when the interface has no address
+    // to listen on (e.g. it has no IPv4 address), because no wildcard is used for it.
+    // An empty `outgoing_interfaces` lets libtorrent connect through any interface,
+    // so keep outgoing traffic bound to the selected interface to avoid leaking it via another one.
+    // With "any interface", connecting through any interface is the expected behavior.
+    if (outgoingInterfaces.isEmpty() && !networkInterface().isEmpty())
+    {
+        const QString ifaceName = networkInterface();
+#ifdef Q_OS_WIN
+        const QString guid = convertIfaceNameToGuid(ifaceName);
+        outgoingInterfaces << (guid.isEmpty() ? ifaceName : guid);
+#else
+        outgoingInterfaces << ifaceName;
+#endif
+    }
+
     const QString finalEndpoints = endpoints.join(u',');
     settingsPack.set_str(lt::settings_pack::listen_interfaces, finalEndpoints.toStdString());
     LogMsg(tr("Trying to listen on the following list of IP addresses: \"%1\"").arg(finalEndpoints));
@@ -3528,97 +3570,26 @@ void SessionImpl::setDownloadPath(const Path &path)
 
 QStringList SessionImpl::getListeningIPs() const
 {
-    QStringList IPs;
-
     const QString ifaceName = networkInterface();
-    const QString ifaceAddr = networkInterfaceAddress();
-    const QHostAddress configuredAddr(ifaceAddr);
-    const bool allIPv4 = (ifaceAddr == u"0.0.0.0"); // Means All IPv4 addresses
-    const bool allIPv6 = (ifaceAddr == u"::"); // Means All IPv6 addresses
+    const QString ipv6Address = networkInterfaceIPv6Address();
+    const ListeningAddressesInput input = makeListeningAddressesInput(ifaceName, networkInterfaceIPv4Address(), ipv6Address);
 
-    if (!ifaceAddr.isEmpty() && !allIPv4 && !allIPv6 && configuredAddr.isNull())
-    {
-        LogMsg(tr("The configured network address is invalid. Address: \"%1\"").arg(ifaceAddr), Log::CRITICAL);
-        // Pass the invalid user configured interface name/address to libtorrent
-        // in hopes that it will come online later.
-        // This will not cause IP leak but allow user to reconnect the interface
-        // and re-establish connection without restarting the client.
-        IPs.append(ifaceAddr);
-        return IPs;
-    }
+    const ListeningAddresses result = resolveListeningAddresses(input);
 
-    if (ifaceName.isEmpty())
-    {
-        if (ifaceAddr.isEmpty())
-            return {u"0.0.0.0"_s, u"::"_s}; // Indicates all interfaces + all addresses (aka default)
-
-        if (allIPv4)
-            return {u"0.0.0.0"_s};
-
-        if (allIPv6)
-            return {u"::"_s};
-    }
-
-    const auto checkAndAddIP = [allIPv4, allIPv6, &IPs](const QHostAddress &addr, const QHostAddress &match)
-    {
-        if ((allIPv4 && (addr.protocol() != QAbstractSocket::IPv4Protocol))
-            || (allIPv6 && (addr.protocol() != QAbstractSocket::IPv6Protocol)))
-            return;
-
-        if ((match == addr) || allIPv4 || allIPv6)
-            IPs.append(addr.toString());
-    };
-
-    if (ifaceName.isEmpty())
-    {
-        const QList<QHostAddress> addresses = QNetworkInterface::allAddresses();
-        for (const auto &addr : addresses)
-            checkAndAddIP(addr, configuredAddr);
-
-        // At this point ifaceAddr was non-empty
-        // If IPs.isEmpty() it means the configured Address was not found
-        if (IPs.isEmpty())
-        {
-            LogMsg(tr("Failed to find the configured network address to listen on. Address: \"%1\"")
-                .arg(ifaceAddr), Log::CRITICAL);
-            IPs.append(ifaceAddr);
-        }
-
-        return IPs;
-    }
-
-    // Attempt to listen on provided interface
-    const QNetworkInterface networkIFace = QNetworkInterface::interfaceFromName(ifaceName);
-    if (!networkIFace.isValid())
-    {
-        qDebug("Invalid network interface: %s", qUtf8Printable(ifaceName));
+    if (result.isIfaceInvalid)
         LogMsg(tr("The configured network interface is invalid. Interface: \"%1\"").arg(ifaceName), Log::CRITICAL);
-        IPs.append(ifaceName);
-        return IPs;
-    }
+    for (const QString &addr : result.invalidAddresses)
+        LogMsg(tr("The configured network address is invalid. Address: \"%1\"").arg(addr), Log::CRITICAL);
+    for (const QString &addr : result.missingAddresses)
+        LogMsg(tr("Failed to find the configured network address to listen on. Address: \"%1\"").arg(addr), Log::CRITICAL);
+    if (result.hasNoIPv4Address)
+        LogMsg(tr("The configured network interface has no IPv4 address. Interface: \"%1\"").arg(ifaceName), Log::WARNING);
+    if (result.hasNoIPv6Address)
+        LogMsg(tr("The configured network interface has no IPv6 address. Interface: \"%1\"").arg(ifaceName), Log::WARNING);
+    if (result.IPs.isEmpty())
+        LogMsg(tr("There is no address to listen on."), Log::WARNING);
 
-    if (ifaceAddr.isEmpty())
-    {
-        IPs.append(ifaceName);
-        return IPs; // On Windows calling code converts it to GUID
-    }
-
-    const QList<QNetworkAddressEntry> addresses = networkIFace.addressEntries();
-    qDebug() << "This network interface has " << addresses.size() << " IP addresses";
-    for (const QNetworkAddressEntry &entry : addresses)
-        checkAndAddIP(entry.ip(), configuredAddr);
-
-    // Make sure there is at least one IP
-    // At this point there was an explicit interface and an explicit address set
-    // and the address should have been found
-    if (IPs.isEmpty())
-    {
-        LogMsg(tr("Failed to find the configured network address to listen on. Address: \"%1\"")
-            .arg(ifaceAddr), Log::CRITICAL);
-        IPs.append(ifaceAddr);
-    }
-
-    return IPs;
+    return result.IPs;
 }
 
 // Set the ports range in which is chosen the port
@@ -3915,16 +3886,30 @@ void SessionImpl::setNetworkInterfaceName(const QString &name)
     m_networkInterfaceName = name;
 }
 
-QString SessionImpl::networkInterfaceAddress() const
+QString SessionImpl::networkInterfaceIPv4Address() const
 {
-    return m_networkInterfaceAddress;
+    return m_networkInterfaceIPv4Address;
 }
 
-void SessionImpl::setNetworkInterfaceAddress(const QString &address)
+void SessionImpl::setNetworkInterfaceIPv4Address(const QString &address)
 {
-    if (address != networkInterfaceAddress())
+    if (address != networkInterfaceIPv4Address())
     {
-        m_networkInterfaceAddress = address;
+        m_networkInterfaceIPv4Address = address;
+        configureListeningInterface();
+    }
+}
+
+QString SessionImpl::networkInterfaceIPv6Address() const
+{
+    return m_networkInterfaceIPv6Address;
+}
+
+void SessionImpl::setNetworkInterfaceIPv6Address(const QString &address)
+{
+    if (address != networkInterfaceIPv6Address())
+    {
+        m_networkInterfaceIPv6Address = address;
         configureListeningInterface();
     }
 }

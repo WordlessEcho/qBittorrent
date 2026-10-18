@@ -7,6 +7,7 @@ include_directories("../src")
 
 set(testFiles
     testalgorithm.cpp
+    testbittorrentlisteningaddresses.cpp
     testbittorrentpeeraddress.cpp
     testbittorrenttorrentdescriptor.cpp
     testbittorrenttrackerentry.cpp

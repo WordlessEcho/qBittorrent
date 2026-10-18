@@ -47,6 +47,7 @@
 #include <QStringList>
 #include <QTimer>
 
+#include "base/bittorrent/listeningaddresses.h"
 #include "base/bittorrent/session.h"
 #include "base/global.h"
 #include "base/interfaces/iapplication.h"
@@ -406,8 +407,9 @@ void AppController::preferencesAction()
     data[u"current_network_interface"_s] = session->networkInterface();
     // Current network interface name
     data[u"current_interface_name"_s] = session->networkInterfaceName();
-    // Current network interface address
-    data[u"current_interface_address"_s] = session->networkInterfaceAddress();
+    // Current network interface addresses
+    data[u"current_interface_ipv4_address"_s] = session->networkInterfaceIPv4Address();
+    data[u"current_interface_ipv6_address"_s] = session->networkInterfaceIPv6Address();
     // Save resume data interval
     data[u"save_resume_data_interval"_s] = session->saveResumeDataInterval();
     // Save statistics interval
@@ -1058,11 +1060,20 @@ void AppController::setPreferencesAction()
         if (!ifaceName.isEmpty() || ifaceValue.isEmpty())
             session->setNetworkInterfaceName(ifaceName);
     }
-    // Current network interface address
-    if (hasKey(u"current_interface_address"_s))
+    // Current network interface addresses
+    if (hasKey(u"current_interface_ipv4_address"_s))
     {
-        const QHostAddress ifaceAddress {it.value().toString().trimmed()};
-        session->setNetworkInterfaceAddress(ifaceAddress.isNull() ? QString() : ifaceAddress.toString());
+        const std::optional<QString> address = BitTorrent::normalizeBindAddress(it.value().toString().trimmed(), QAbstractSocket::IPv4Protocol);
+        if (!address)
+            throw APIError(APIErrorType::BadParams, tr("Invalid IPv4 address to bind to"));
+        session->setNetworkInterfaceIPv4Address(*address);
+    }
+    if (hasKey(u"current_interface_ipv6_address"_s))
+    {
+        const std::optional<QString> address = BitTorrent::normalizeBindAddress(it.value().toString().trimmed(), QAbstractSocket::IPv6Protocol);
+        if (!address)
+            throw APIError(APIErrorType::BadParams, tr("Invalid IPv6 address to bind to"));
+        session->setNetworkInterfaceIPv6Address(*address);
     }
     // Save resume data interval
     if (hasKey(u"save_resume_data_interval"_s))

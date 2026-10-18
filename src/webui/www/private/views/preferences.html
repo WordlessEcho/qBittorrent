@@ -1324,10 +1324,19 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                 </tr>
                 <tr>
                     <td>
-                        <label for="optionalIPAddressToBind">QBT_TR(Optional IP address to bind to:)QBT_TR[CONTEXT=OptionsDialog]</label>
+                        <label for="optionalIPv4AddressToBind">QBT_TR(Optional IPv4 address to bind to:)QBT_TR[CONTEXT=OptionsDialog]</label>
                     </td>
                     <td>
-                        <select id="optionalIPAddressToBind" style="width: 15em;">
+                        <select id="optionalIPv4AddressToBind" style="width: 15em;">
+                        </select>
+                    </td>
+                </tr>
+                <tr>
+                    <td>
+                        <label for="optionalIPv6AddressToBind">QBT_TR(Optional IPv6 address to bind to:)QBT_TR[CONTEXT=OptionsDialog]</label>
+                    </td>
+                    <td>
+                        <select id="optionalIPv6AddressToBind" style="width: 15em;">
                         </select>
                     </td>
                 </tr>
@@ -2435,8 +2444,10 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                 });
         };
 
-        const updateInterfaceAddresses = (iface, default_addr) => {
-            for (const el of [...document.getElementById("optionalIPAddressToBind").children])
+        const updateInterfaceAddresses = (iface, default_ipv4_addr, default_ipv6_addr) => {
+            const ipv4Select = document.getElementById("optionalIPv4AddressToBind");
+            const ipv6Select = document.getElementById("optionalIPv6AddressToBind");
+            for (const el of [...ipv4Select.children, ...ipv6Select.children])
                 el.remove();
 
             const url = new URL("api/v2/app/networkInterfaceAddressList", window.location);
@@ -2457,12 +2468,23 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                     if (!addresses)
                         return;
 
-                    document.getElementById("optionalIPAddressToBind").options.add(new Option("QBT_TR(All addresses)QBT_TR[CONTEXT=OptionDialog]", ""));
-                    document.getElementById("optionalIPAddressToBind").options.add(new Option("QBT_TR(All IPv4 addresses)QBT_TR[CONTEXT=OptionDialog]", "0.0.0.0"));
-                    document.getElementById("optionalIPAddressToBind").options.add(new Option("QBT_TR(All IPv6 addresses)QBT_TR[CONTEXT=OptionDialog]", "::"));
-                    for (const item of addresses)
-                        document.getElementById("optionalIPAddressToBind").options.add(new Option(item, item));
-                    document.getElementById("optionalIPAddressToBind").value = default_addr;
+                    ipv4Select.options.add(new Option("QBT_TR(All IPv4 addresses)QBT_TR[CONTEXT=OptionDialog]", ""));
+                    ipv4Select.options.add(new Option("QBT_TR(Disabled)QBT_TR[CONTEXT=OptionDialog]", "disabled"));
+                    ipv6Select.options.add(new Option("QBT_TR(All IPv6 addresses)QBT_TR[CONTEXT=OptionDialog]", ""));
+                    ipv6Select.options.add(new Option("QBT_TR(Disabled)QBT_TR[CONTEXT=OptionDialog]", "disabled"));
+                    for (const item of addresses) {
+                        const select = item.includes(":") ? ipv6Select : ipv4Select;
+                        select.options.add(new Option(item, item));
+                    }
+
+                    const selectValue = (select, value) => {
+                        // Show a saved value that is not in the list, so that saving does not change it
+                        if (![...select.options].some((option) => option.value === value))
+                            select.options.add(new Option(value, value));
+                        select.value = value;
+                    };
+                    selectValue(ipv4Select, default_ipv4_addr);
+                    selectValue(ipv6Select, default_ipv6_addr);
                 });
         };
 
@@ -2881,7 +2903,7 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                     document.getElementById("torrentContentRemoveOption").value = pref.torrent_content_remove_option;
                     document.getElementById("memoryWorkingSetLimit").value = pref.memory_working_set_limit;
                     updateNetworkInterfaces(pref.current_network_interface, pref.current_interface_name);
-                    updateInterfaceAddresses(pref.current_network_interface, pref.current_interface_address);
+                    updateInterfaceAddresses(pref.current_network_interface, pref.current_interface_ipv4_address, pref.current_interface_ipv6_address);
                     document.getElementById("saveResumeDataInterval").value = pref.save_resume_data_interval;
                     document.getElementById("saveStatisticsInterval").value = pref.save_statistics_interval;
                     document.getElementById("torrentFileSizeLimit").value = (pref.torrent_file_size_limit / 1024 / 1024);
@@ -3386,7 +3408,8 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
             settings["torrent_content_remove_option"] = document.getElementById("torrentContentRemoveOption").value;
             settings["memory_working_set_limit"] = Number(document.getElementById("memoryWorkingSetLimit").value);
             settings["current_network_interface"] = document.getElementById("networkInterface").value;
-            settings["current_interface_address"] = document.getElementById("optionalIPAddressToBind").value;
+            settings["current_interface_ipv4_address"] = document.getElementById("optionalIPv4AddressToBind").value;
+            settings["current_interface_ipv6_address"] = document.getElementById("optionalIPv6AddressToBind").value;
             settings["save_resume_data_interval"] = Number(document.getElementById("saveResumeDataInterval").value);
             settings["save_statistics_interval"] = Number(document.getElementById("saveStatisticsInterval").value);
             settings["torrent_file_size_limit"] = (document.getElementById("torrentFileSizeLimit").value * 1024 * 1024);
@@ -3586,7 +3609,7 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                 document.getElementById("rowMarkOfTheWeb").style.display = "none";
 
             document.getElementById("networkInterface").addEventListener("change", function(event) {
-                updateInterfaceAddresses(this.value, "");
+                updateInterfaceAddresses(this.value, "", "");
             });
 
             document.getElementById("deleteTorrentFileAfterCheckbox").addEventListener("change", (e) => { updateDeleteCancelledTorrentEnabled(); });

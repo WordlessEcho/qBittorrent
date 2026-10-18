@@ -38,6 +38,7 @@
 
 #include <libtorrent/version.hpp>
 
+#include "base/bittorrent/listeningaddresses.h"
 #include "base/bittorrent/session.h"
 #include "base/global.h"
 #include "base/preferences.h"
@@ -74,8 +75,9 @@ namespace
 #endif
         // network interface
         NETWORK_IFACE,
-        //Optional network address
-        NETWORK_IFACE_ADDRESS,
+        //Optional network addresses
+        NETWORK_IFACE_IPV4_ADDRESS,
+        NETWORK_IFACE_IPV6_ADDRESS,
         // behavior
         SAVE_RESUME_DATA_INTERVAL,
         SAVE_STATISTICS_INTERVAL,
@@ -333,10 +335,9 @@ void AdvancedSettings::saveAdvancedSettings() const
     session->setNetworkInterfaceName((m_comboBoxInterface.currentIndex() == 0)
         ? QString()
         : m_comboBoxInterface.currentText());
-    // Interface address
-    // Construct a QHostAddress to filter malformed strings
-    const QHostAddress ifaceAddr {m_comboBoxInterfaceAddress.currentData().toString()};
-    session->setNetworkInterfaceAddress(ifaceAddr.toString());
+    // Interface addresses
+    session->setNetworkInterfaceIPv4Address(m_comboBoxInterfaceIPv4Address.currentData().toString());
+    session->setNetworkInterfaceIPv6Address(m_comboBoxInterfaceIPv6Address.currentData().toString());
     // Announce IP
     // Construct a QHostAddress to filter malformed strings
     const QHostAddress addr(m_lineEditAnnounceIP.text().trimmed());
@@ -462,42 +463,53 @@ void AdvancedSettings::updateInterfaceAddressCombo()
     };
 
     // Clear all items and reinsert them
-    m_comboBoxInterfaceAddress.clear();
-    m_comboBoxInterfaceAddress.addItem(tr("All addresses"), QString());
-    m_comboBoxInterfaceAddress.addItem(tr("All IPv4 addresses"), QHostAddress(QHostAddress::AnyIPv4).toString());
-    m_comboBoxInterfaceAddress.addItem(tr("All IPv6 addresses"), QHostAddress(QHostAddress::AnyIPv6).toString());
+    m_comboBoxInterfaceIPv4Address.clear();
+    m_comboBoxInterfaceIPv4Address.addItem(tr("All IPv4 addresses"), BitTorrent::BIND_ALL_ADDRESSES);
+    m_comboBoxInterfaceIPv4Address.addItem(tr("Disabled"), BitTorrent::BIND_DISABLED);
+    m_comboBoxInterfaceIPv6Address.clear();
+    m_comboBoxInterfaceIPv6Address.addItem(tr("All IPv6 addresses"), BitTorrent::BIND_ALL_ADDRESSES);
+    m_comboBoxInterfaceIPv6Address.addItem(tr("Disabled"), BitTorrent::BIND_DISABLED);
+
+    const auto addAddressItem = [this, &toString](const QHostAddress &address)
+    {
+        const QString addressString = toString(address);
+        if (address.protocol() == QAbstractSocket::IPv4Protocol)
+            m_comboBoxInterfaceIPv4Address.addItem(addressString, addressString);
+        else
+            m_comboBoxInterfaceIPv6Address.addItem(addressString, addressString);
+    };
 
     const QString currentIface = m_comboBoxInterface.currentData().toString();
     if (currentIface.isEmpty())  // `any` interface
     {
         for (const QHostAddress &address : asConst(QNetworkInterface::allAddresses()))
-        {
-            const QString addressString = toString(address);
-            m_comboBoxInterfaceAddress.addItem(addressString, addressString);
-        }
+            addAddressItem(address);
     }
     else
     {
         const QList<QNetworkAddressEntry> addresses = QNetworkInterface::interfaceFromName(currentIface).addressEntries();
         for (const QNetworkAddressEntry &entry : addresses)
-        {
-            const QString addressString = toString(entry.ip());
-            m_comboBoxInterfaceAddress.addItem(addressString, addressString);
-        }
+            addAddressItem(entry.ip());
     }
 
-    const QString currentAddress = BitTorrent::Session::instance()->networkInterfaceAddress();
-    const int index = m_comboBoxInterfaceAddress.findData(currentAddress);
-    if (index > -1)
+    const auto selectAddress = [](QComboBox &comboBox, const QString &currentAddress)
     {
-        m_comboBoxInterfaceAddress.setCurrentIndex(index);
-    }
-    else
-    {
-        // not found, for the sake of UI consistency, add such entry
-        m_comboBoxInterfaceAddress.addItem(currentAddress, currentAddress);
-        m_comboBoxInterfaceAddress.setCurrentIndex(m_comboBoxInterfaceAddress.count() - 1);
-    }
+        const int index = comboBox.findData(currentAddress);
+        if (index > -1)
+        {
+            comboBox.setCurrentIndex(index);
+        }
+        else
+        {
+            // not found, for the sake of UI consistency, add such entry
+            comboBox.addItem(currentAddress, currentAddress);
+            comboBox.setCurrentIndex(comboBox.count() - 1);
+        }
+    };
+
+    const BitTorrent::Session *session = BitTorrent::Session::instance();
+    selectAddress(m_comboBoxInterfaceIPv4Address, session->networkInterfaceIPv4Address());
+    selectAddress(m_comboBoxInterfaceIPv6Address, session->networkInterfaceIPv6Address());
 }
 
 void AdvancedSettings::loadAdvancedSettings()
@@ -857,9 +869,10 @@ void AdvancedSettings::loadAdvancedSettings()
 
     connect(&m_comboBoxInterface, &QComboBox::currentIndexChanged, this, &AdvancedSettings::updateInterfaceAddressCombo);
     addRow(NETWORK_IFACE, tr("Network interface"), &m_comboBoxInterface);
-    // Network interface address
+    // Network interface addresses
     updateInterfaceAddressCombo();
-    addRow(NETWORK_IFACE_ADDRESS, tr("Optional IP address to bind to"), &m_comboBoxInterfaceAddress);
+    addRow(NETWORK_IFACE_IPV4_ADDRESS, tr("Optional IPv4 address to bind to"), &m_comboBoxInterfaceIPv4Address);
+    addRow(NETWORK_IFACE_IPV6_ADDRESS, tr("Optional IPv6 address to bind to"), &m_comboBoxInterfaceIPv6Address);
     // Announce IP
     m_lineEditAnnounceIP.setText(session->announceIP());
     addRow(ANNOUNCE_IP, (tr("IP address reported to trackers (requires restart)")

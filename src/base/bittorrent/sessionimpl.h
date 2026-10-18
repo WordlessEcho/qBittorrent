@@ -262,8 +262,10 @@ namespace BitTorrent
         void setNetworkInterface(const QString &iface) override;
         QString networkInterfaceName() const override;
         void setNetworkInterfaceName(const QString &name) override;
-        QString networkInterfaceAddress() const override;
-        void setNetworkInterfaceAddress(const QString &address) override;
+        QString networkInterfaceIPv4Address() const override;
+        void setNetworkInterfaceIPv4Address(const QString &address) override;
+        QString networkInterfaceIPv6Address() const override;
+        void setNetworkInterfaceIPv6Address(const QString &address) override;
         int encryption() const override;
         void setEncryption(int state) override;
         int maxActiveCheckingTorrents() const override;
@@ -776,7 +778,8 @@ namespace BitTorrent
         CachedSettingValue<int> m_sslPort;
         CachedSettingValue<QString> m_networkInterface;
         CachedSettingValue<QString> m_networkInterfaceName;
-        CachedSettingValue<QString> m_networkInterfaceAddress;
+        CachedSettingValue<QString> m_networkInterfaceIPv4Address;
+        CachedSettingValue<QString> m_networkInterfaceIPv6Address;
         CachedSettingValue<int> m_encryption;
         CachedSettingValue<int> m_maxActiveCheckingTorrents;
         CachedSettingValue<bool> m_isProxyPeerConnectionsEnabled;

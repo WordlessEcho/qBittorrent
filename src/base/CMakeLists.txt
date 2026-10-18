@@ -20,6 +20,7 @@ add_library(qbt_base STATIC
     bittorrent/filesearcher.h
     bittorrent/filterparserthread.h
     bittorrent/infohash.h
+    bittorrent/listeningaddresses.h
     bittorrent/loadtorrentparams.h
     bittorrent/ltqbitarray.h
     bittorrent/lttypecast.h
@@ -151,6 +152,7 @@ add_library(qbt_base STATIC
     bittorrent/filesearcher.cpp
     bittorrent/filterparserthread.cpp
     bittorrent/infohash.cpp
+    bittorrent/listeningaddresses.cpp
     bittorrent/ltqbitarray.cpp
     bittorrent/nativesessionextension.cpp
     bittorrent/nativetorrentextension.cpp

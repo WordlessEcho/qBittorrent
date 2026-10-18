@@ -285,8 +285,11 @@ namespace BitTorrent
         virtual void setNetworkInterface(const QString &iface) = 0;
         virtual QString networkInterfaceName() const = 0;
         virtual void setNetworkInterfaceName(const QString &name) = 0;
-        virtual QString networkInterfaceAddress() const = 0;
-        virtual void setNetworkInterfaceAddress(const QString &address) = 0;
+        // See `BIND_*` in listeningaddresses.h for the special values
+        virtual QString networkInterfaceIPv4Address() const = 0;
+        virtual void setNetworkInterfaceIPv4Address(const QString &address) = 0;
+        virtual QString networkInterfaceIPv6Address() const = 0;
+        virtual void setNetworkInterfaceIPv6Address(const QString &address) = 0;
         virtual int encryption() const = 0;
         virtual void setEncryption(int state) = 0;
         virtual int maxActiveCheckingTorrents() const = 0;

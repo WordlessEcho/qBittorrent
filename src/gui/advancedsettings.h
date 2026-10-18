@@ -84,7 +84,7 @@ private:
               m_checkBoxAnnounceAllTiers, m_checkBoxMultiConnectionsPerIp, m_checkBoxMultiConnectionsPerPeerID, m_checkBoxValidateHTTPSTrackerCertificate, m_checkBoxSSRFMitigation, m_checkBoxBlockPeersOnPrivilegedPorts,
               m_checkBoxPieceExtentAffinity, m_checkBoxSuggestMode, m_checkBoxSeedingOutgoingConnections, m_checkBoxSpeedWidgetEnabled, m_checkBoxIDNSupport,
               m_checkBoxConfirmRemoveTrackerFromAllTorrents, m_checkBoxStartSessionPaused;
-    QComboBox m_comboBoxInterface, m_comboBoxInterfaceAddress, m_comboBoxDiskIOReadMode, m_comboBoxDiskIOWriteMode, m_comboBoxUtpMixedMode, m_comboBoxChokingAlgorithm,
+    QComboBox m_comboBoxInterface, m_comboBoxInterfaceIPv4Address, m_comboBoxInterfaceIPv6Address, m_comboBoxDiskIOReadMode, m_comboBoxDiskIOWriteMode, m_comboBoxUtpMixedMode, m_comboBoxChokingAlgorithm,
               m_comboBoxSeedChokingAlgorithm, m_comboBoxResumeDataStorage, m_comboBoxTorrentContentRemoveOption;
     QLineEdit m_lineEditAppInstanceName, m_lineEditAnnounceIP, m_lineEditDHTBootstrapNodes, m_lineEditWebTorrentSTUNServer;
     FileSystemPathLineEdit m_pythonExecutablePath;
@@ -121,7 +121,6 @@ private:
 #if defined(Q_OS_MACOS) || defined(Q_OS_WIN)
     QCheckBox m_checkBoxMarkOfTheWeb;
 #endif // Q_OS_MACOS || Q_OS_WIN
-
 #ifdef QBT_USES_DBUS
     QSpinBox m_spinBoxNotificationTimeout;
 #endif
