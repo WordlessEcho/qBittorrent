@@ -71,6 +71,13 @@ std::optional<QString> BitTorrent::normalizeBindAddress(const QString &value, co
     if ((value == BIND_ALL_ADDRESSES) || (value == BIND_DISABLED))
         return value;
 
+    if (value == BIND_TEMPORARY_IPV6_ADDRESSES)
+    {
+        if (protocol == QAbstractSocket::IPv6Protocol)
+            return value;
+        return std::nullopt;
+    }
+
     const std::optional<QHostAddress> addr = parseBindAddress(value, protocol);
     if (!addr)
         return std::nullopt;
@@ -144,6 +151,13 @@ BitTorrent::ListeningAddresses BitTorrent::resolveListeningAddresses(const Liste
             result.IPs.append(u"::"_s);
         else if (!addAllOfFamily(QAbstractSocket::IPv6Protocol))
             result.hasNoIPv6Address = true;
+    }
+    else if (input.ipv6Address == BIND_TEMPORARY_IPV6_ADDRESSES)
+    {
+        for (const QHostAddress &addr : input.temporaryIPv6Addresses)
+            result.IPs.append(addr.toString());
+        if (input.temporaryIPv6Addresses.isEmpty())
+            result.hasNoTemporaryIPv6Address = true;
     }
     else if (input.ipv6Address != BIND_DISABLED)
     {

@@ -2468,9 +2468,14 @@ Use ';' to split multiple entries. Can use wildcard '*'.)QBT_TR[CONTEXT=OptionsD
                     if (!addresses)
                         return;
 
+                    const platform = window.qBittorrent.Cache.buildInfo.get().platform;
+                    const isTemporaryIPv6Supported = (platform === "linux") || (platform === "macos") || (platform === "windows");
+
                     ipv4Select.options.add(new Option("QBT_TR(All IPv4 addresses)QBT_TR[CONTEXT=OptionDialog]", ""));
                     ipv4Select.options.add(new Option("QBT_TR(Disabled)QBT_TR[CONTEXT=OptionDialog]", "disabled"));
                     ipv6Select.options.add(new Option("QBT_TR(All IPv6 addresses)QBT_TR[CONTEXT=OptionDialog]", ""));
+                    if (isTemporaryIPv6Supported)
+                        ipv6Select.options.add(new Option("QBT_TR(All temporary IPv6 addresses)QBT_TR[CONTEXT=OptionDialog]", "temporary"));
                     ipv6Select.options.add(new Option("QBT_TR(Disabled)QBT_TR[CONTEXT=OptionDialog]", "disabled"));
                     for (const item of addresses) {
                         const select = item.includes(":") ? ipv6Select : ipv4Select;

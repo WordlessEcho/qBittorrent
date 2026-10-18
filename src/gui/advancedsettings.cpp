@@ -43,6 +43,7 @@
 #include "base/global.h"
 #include "base/preferences.h"
 #include "base/unicodestrings.h"
+#include "base/utils/net.h"
 #include "gui/desktopintegration.h"
 #include "gui/mainwindow.h"
 #include "interfaces/iguiapplication.h"
@@ -468,6 +469,8 @@ void AdvancedSettings::updateInterfaceAddressCombo()
     m_comboBoxInterfaceIPv4Address.addItem(tr("Disabled"), BitTorrent::BIND_DISABLED);
     m_comboBoxInterfaceIPv6Address.clear();
     m_comboBoxInterfaceIPv6Address.addItem(tr("All IPv6 addresses"), BitTorrent::BIND_ALL_ADDRESSES);
+    if (Utils::Net::isTemporaryIPv6Supported())
+        m_comboBoxInterfaceIPv6Address.addItem(tr("All temporary IPv6 addresses"), BitTorrent::BIND_TEMPORARY_IPV6_ADDRESSES);
     m_comboBoxInterfaceIPv6Address.addItem(tr("Disabled"), BitTorrent::BIND_DISABLED);
 
     const auto addAddressItem = [this, &toString](const QHostAddress &address)
@@ -872,6 +875,7 @@ void AdvancedSettings::loadAdvancedSettings()
     // Network interface addresses
     updateInterfaceAddressCombo();
     addRow(NETWORK_IFACE_IPV4_ADDRESS, tr("Optional IPv4 address to bind to"), &m_comboBoxInterfaceIPv4Address);
+    m_comboBoxInterfaceIPv6Address.setToolTip(tr("Temporary IPv6 addresses are the privacy extension addresses. The system changes them regularly."));
     addRow(NETWORK_IFACE_IPV6_ADDRESS, tr("Optional IPv6 address to bind to"), &m_comboBoxInterfaceIPv6Address);
     // Announce IP
     m_lineEditAnnounceIP.setText(session->announceIP());

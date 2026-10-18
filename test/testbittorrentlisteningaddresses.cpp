@@ -45,6 +45,7 @@ namespace
 {
     using BitTorrent::BIND_ALL_ADDRESSES;
     using BitTorrent::BIND_DISABLED;
+    using BitTorrent::BIND_TEMPORARY_IPV6_ADDRESSES;
 
     using Input = BitTorrent::ListeningAddressesInput;
 
@@ -53,7 +54,8 @@ namespace
     {
         IsIfaceInvalid = 1,
         HasNoIPv4Address = 2,
-        HasNoIPv6Address = 4
+        HasNoIPv6Address = 4,
+        HasNoTemporaryIPv6Address = 8
     };
     Q_DECLARE_FLAGS(ResultFlags, ResultFlag)
     Q_DECLARE_OPERATORS_FOR_FLAGS(ResultFlags)
@@ -85,15 +87,17 @@ namespace
     // IPv4 and IPv6 addresses are mixed on purpose: the IPv4 ones come first in the result
     const QList<QHostAddress> IFACE_ADDRESSES = makeAddresses({IPV4_1, IPV6_STABLE, IPV6_TEMPORARY_1, IPV4_2
         , IPV6_TEMPORARY_2, IPV6_LINK_LOCAL});
+    const QList<QHostAddress> TEMPORARY_ADDRESSES = makeAddresses({IPV6_TEMPORARY_1, IPV6_TEMPORARY_2});
     // addresses of all interfaces: the ones of `IFACE` and of the loopback interface
     const QList<QHostAddress> ALL_ADDRESSES = IFACE_ADDRESSES + makeAddresses({u"127.0.0.1"_s, u"::1"_s});
 
     // Any interface, with the addresses of all interfaces by default
     Input anyIface(const QString &ipv4Address, const QString &ipv6Address
-        , const QList<QHostAddress> &addresses = ALL_ADDRESSES)
+        , const QList<QHostAddress> &addresses = ALL_ADDRESSES, const QList<QHostAddress> &temporaryAddresses = TEMPORARY_ADDRESSES)
     {
         Input input;
         input.addresses = addresses;
+        input.temporaryIPv6Addresses = temporaryAddresses;
         input.ipv4Address = ipv4Address;
         input.ipv6Address = ipv6Address;
         return input;
@@ -101,9 +105,9 @@ namespace
 
     // The valid interface `IFACE`, with its addresses by default
     Input iface(const QString &ipv4Address, const QString &ipv6Address
-        , const QList<QHostAddress> &addresses = IFACE_ADDRESSES)
+        , const QList<QHostAddress> &addresses = IFACE_ADDRESSES, const QList<QHostAddress> &temporaryAddresses = TEMPORARY_ADDRESSES)
     {
-        Input input = anyIface(ipv4Address, ipv6Address, addresses);
+        Input input = anyIface(ipv4Address, ipv6Address, addresses, temporaryAddresses);
         input.ifaceName = IFACE;
         input.isIfaceValid = true;
         return input;
@@ -112,7 +116,7 @@ namespace
     // The invalid interface `INVALID_IFACE`, which has no addresses
     Input invalidIface(const QString &ipv4Address, const QString &ipv6Address)
     {
-        Input input = anyIface(ipv4Address, ipv6Address, {});
+        Input input = anyIface(ipv4Address, ipv6Address, {}, {});
         input.ifaceName = INVALID_IFACE;
         input.isIfaceValid = false;
         return input;
@@ -133,6 +137,7 @@ private slots:
         // the values are stored in the settings, so they must not change
         QVERIFY(BIND_ALL_ADDRESSES.isEmpty());
         QCOMPARE(BIND_DISABLED, u"disabled"_s);
+        QCOMPARE(BIND_TEMPORARY_IPV6_ADDRESSES, u"temporary"_s);
     }
 
     void testNormalizeBindAddress_data() const
@@ -150,6 +155,8 @@ private slots:
         QTest::newRow("all addresses, IPv6") << BIND_ALL_ADDRESSES << ipv6 << true << BIND_ALL_ADDRESSES;
         QTest::newRow("disabled, IPv4") << BIND_DISABLED << ipv4 << true << BIND_DISABLED;
         QTest::newRow("disabled, IPv6") << BIND_DISABLED << ipv6 << true << BIND_DISABLED;
+        QTest::newRow("temporary, IPv6") << BIND_TEMPORARY_IPV6_ADDRESSES << ipv6 << true << BIND_TEMPORARY_IPV6_ADDRESSES;
+        QTest::newRow("temporary, IPv4") << BIND_TEMPORARY_IPV6_ADDRESSES << ipv4 << false << QString();
 
         // addresses
         QTest::newRow("IPv4") << u"192.0.2.10"_s << ipv4 << true << u"192.0.2.10"_s;
@@ -224,7 +231,7 @@ private slots:
             << anyIface(BIND_ALL_ADDRESSES, BIND_ALL_ADDRESSES)
             << QStringList {u"0.0.0.0"_s, u"::"_s} << QStringList {} << QStringList {} << ResultFlags {};
         QTest::newRow("any interface, defaults without addresses")
-            << anyIface(BIND_ALL_ADDRESSES, BIND_ALL_ADDRESSES, {})
+            << anyIface(BIND_ALL_ADDRESSES, BIND_ALL_ADDRESSES, {}, {})
             << QStringList {u"0.0.0.0"_s, u"::"_s} << QStringList {} << QStringList {} << ResultFlags {};
         QTest::newRow("any interface, IPv4 only")
             << anyIface(BIND_ALL_ADDRESSES, BIND_DISABLED)
@@ -235,6 +242,15 @@ private slots:
         QTest::newRow("any interface, both disabled")
             << anyIface(BIND_DISABLED, BIND_DISABLED)
             << QStringList {} << QStringList {} << QStringList {} << ResultFlags {};
+        QTest::newRow("any interface, temporary IPv6")
+            << anyIface(BIND_ALL_ADDRESSES, BIND_TEMPORARY_IPV6_ADDRESSES)
+            << QStringList {u"0.0.0.0"_s, IPV6_TEMPORARY_1, IPV6_TEMPORARY_2} << QStringList {} << QStringList {} << ResultFlags {};
+        QTest::newRow("any interface, temporary IPv6 without temporary addresses")
+            << anyIface(BIND_ALL_ADDRESSES, BIND_TEMPORARY_IPV6_ADDRESSES, ALL_ADDRESSES, {})
+            << QStringList {u"0.0.0.0"_s} << QStringList {} << QStringList {} << ResultFlags {HasNoTemporaryIPv6Address};
+        QTest::newRow("any interface, IPv4 disabled, temporary IPv6 without temporary addresses")
+            << anyIface(BIND_DISABLED, BIND_TEMPORARY_IPV6_ADDRESSES, ALL_ADDRESSES, {})
+            << QStringList {} << QStringList {} << QStringList {} << ResultFlags {HasNoTemporaryIPv6Address};
         QTest::newRow("any interface, specific IPv4")
             << anyIface(IPV4_1, BIND_ALL_ADDRESSES)
             << QStringList {IPV4_1, u"::"_s} << QStringList {} << QStringList {} << ResultFlags {};
@@ -245,6 +261,9 @@ private slots:
             << anyIface(MISSING_IPV4, MISSING_IPV6)
             << QStringList {MISSING_IPV4, MISSING_IPV6} << QStringList {} << QStringList {MISSING_IPV4, MISSING_IPV6}
             << ResultFlags {};
+        QTest::newRow("any interface, temporary as IPv4")
+            << anyIface(BIND_TEMPORARY_IPV6_ADDRESSES, BIND_ALL_ADDRESSES)
+            << QStringList {u"::"_s} << QStringList {BIND_TEMPORARY_IPV6_ADDRESSES} << QStringList {} << ResultFlags {};
         QTest::newRow("any interface, other families")
             << anyIface(IPV6_STABLE, IPV4_1)
             << QStringList {} << QStringList {IPV6_STABLE, IPV4_1} << QStringList {} << ResultFlags {};
@@ -264,7 +283,7 @@ private slots:
             << iface(BIND_ALL_ADDRESSES, BIND_ALL_ADDRESSES)
             << QStringList {IFACE} << QStringList {} << QStringList {} << ResultFlags {};
         QTest::newRow("interface, all addresses without addresses")
-            << iface(BIND_ALL_ADDRESSES, BIND_ALL_ADDRESSES, {})
+            << iface(BIND_ALL_ADDRESSES, BIND_ALL_ADDRESSES, {}, {})
             << QStringList {IFACE} << QStringList {} << QStringList {} << ResultFlags {};
         QTest::newRow("invalid interface, all addresses")
             << invalidIface(BIND_ALL_ADDRESSES, BIND_ALL_ADDRESSES)
@@ -276,18 +295,28 @@ private slots:
             << iface(BIND_ALL_ADDRESSES, BIND_DISABLED)
             << QStringList {IPV4_1, IPV4_2} << QStringList {} << QStringList {} << ResultFlags {};
         QTest::newRow("interface without IPv4, all IPv4, IPv6 disabled")
-            << iface(BIND_ALL_ADDRESSES, BIND_DISABLED, makeAddresses({IPV6_STABLE, IPV6_LINK_LOCAL}))
+            << iface(BIND_ALL_ADDRESSES, BIND_DISABLED, makeAddresses({IPV6_STABLE, IPV6_LINK_LOCAL}), {})
             << QStringList {} << QStringList {} << QStringList {} << ResultFlags {HasNoIPv4Address};
         QTest::newRow("interface, all IPv6, IPv4 disabled")
             << iface(BIND_DISABLED, BIND_ALL_ADDRESSES)
             << QStringList {IPV6_STABLE, IPV6_TEMPORARY_1, IPV6_TEMPORARY_2, IPV6_LINK_LOCAL} << QStringList {} << QStringList {}
             << ResultFlags {};
         QTest::newRow("interface without IPv6, all IPv6, IPv4 disabled")
-            << iface(BIND_DISABLED, BIND_ALL_ADDRESSES, makeAddresses({IPV4_1}))
+            << iface(BIND_DISABLED, BIND_ALL_ADDRESSES, makeAddresses({IPV4_1}), {})
             << QStringList {} << QStringList {} << QStringList {} << ResultFlags {HasNoIPv6Address};
         QTest::newRow("interface without IPv6, specific IPv4, all IPv6")
-            << iface(IPV4_1, BIND_ALL_ADDRESSES, makeAddresses({IPV4_1}))
+            << iface(IPV4_1, BIND_ALL_ADDRESSES, makeAddresses({IPV4_1}), {})
             << QStringList {IPV4_1} << QStringList {} << QStringList {} << ResultFlags {HasNoIPv6Address};
+        QTest::newRow("interface, all IPv4, temporary IPv6")
+            << iface(BIND_ALL_ADDRESSES, BIND_TEMPORARY_IPV6_ADDRESSES)
+            << QStringList {IPV4_1, IPV4_2, IPV6_TEMPORARY_1, IPV6_TEMPORARY_2} << QStringList {} << QStringList {}
+            << ResultFlags {};
+        QTest::newRow("interface, all IPv4, temporary IPv6 without temporary addresses")
+            << iface(BIND_ALL_ADDRESSES, BIND_TEMPORARY_IPV6_ADDRESSES, IFACE_ADDRESSES, {})
+            << QStringList {IPV4_1, IPV4_2} << QStringList {} << QStringList {} << ResultFlags {HasNoTemporaryIPv6Address};
+        QTest::newRow("interface without addresses, all IPv4, temporary IPv6")
+            << iface(BIND_ALL_ADDRESSES, BIND_TEMPORARY_IPV6_ADDRESSES, {}, {})
+            << QStringList {} << QStringList {} << QStringList {} << ResultFlags {HasNoIPv4Address | HasNoTemporaryIPv6Address};
         QTest::newRow("interface, all IPv4, specific IPv6")
             << iface(BIND_ALL_ADDRESSES, IPV6_STABLE)
             << QStringList {IPV4_1, IPV4_2, IPV6_STABLE} << QStringList {} << QStringList {} << ResultFlags {};
@@ -317,7 +346,7 @@ private slots:
             << iface(BIND_DISABLED, u"fe80::1"_s)
             << QStringList {u"fe80::1"_s} << QStringList {} << QStringList {} << ResultFlags {};
         QTest::newRow("interface, link-local IPv6 with scope id")
-            << iface(BIND_DISABLED, u"fe80::1%eth0"_s, makeAddresses({u"fe80::1"_s}))
+            << iface(BIND_DISABLED, u"fe80::1%eth0"_s, makeAddresses({u"fe80::1"_s}), {})
             << QStringList {u"fe80::1%eth0"_s} << QStringList {} << QStringList {} << ResultFlags {};
         QTest::newRow("interface, specific IPv4 and IPv6")
             << iface(IPV4_1, IPV6_TEMPORARY_1)
@@ -343,6 +372,9 @@ private slots:
         QTest::newRow("interface, interface name as addresses")
             << iface(IFACE, IFACE)
             << QStringList {} << QStringList {IFACE, IFACE} << QStringList {} << ResultFlags {};
+        QTest::newRow("interface, temporary as IPv4")
+            << iface(BIND_TEMPORARY_IPV6_ADDRESSES, BIND_DISABLED)
+            << QStringList {} << QStringList {BIND_TEMPORARY_IPV6_ADDRESSES} << QStringList {} << ResultFlags {};
 
         // invalid interface: it has no addresses
 
@@ -355,6 +387,9 @@ private slots:
         QTest::newRow("invalid interface, all IPv4, IPv6 disabled")
             << invalidIface(BIND_ALL_ADDRESSES, BIND_DISABLED)
             << QStringList {} << QStringList {} << QStringList {} << ResultFlags {IsIfaceInvalid | HasNoIPv4Address};
+        QTest::newRow("invalid interface, IPv4 disabled, temporary IPv6")
+            << invalidIface(BIND_DISABLED, BIND_TEMPORARY_IPV6_ADDRESSES)
+            << QStringList {} << QStringList {} << QStringList {} << ResultFlags {IsIfaceInvalid | HasNoTemporaryIPv6Address};
         QTest::newRow("invalid interface, garbage, all IPv6")
             << invalidIface(u"abc"_s, BIND_ALL_ADDRESSES)
             << QStringList {} << QStringList {u"abc"_s} << QStringList {} << ResultFlags {IsIfaceInvalid | HasNoIPv6Address};
@@ -378,6 +413,7 @@ private slots:
         QCOMPARE(result.missingAddresses, missingAddresses);
         QCOMPARE(result.hasNoIPv4Address, flags.testFlag(HasNoIPv4Address));
         QCOMPARE(result.hasNoIPv6Address, flags.testFlag(HasNoIPv6Address));
+        QCOMPARE(result.hasNoTemporaryIPv6Address, flags.testFlag(HasNoTemporaryIPv6Address));
     }
 };
 

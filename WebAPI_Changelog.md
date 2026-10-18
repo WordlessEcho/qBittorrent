@@ -5,7 +5,7 @@
 * Separate IPv4 and IPv6 addresses to bind to
   * `app/preferences` endpoint no longer includes `current_interface_address`, and `app/setPreferences` no longer accepts it
   * `app/preferences` endpoint includes `current_interface_ipv4_address` (string) option: `""` (all IPv4 addresses), `"disabled"` or an IPv4 address
-  * `app/preferences` endpoint includes `current_interface_ipv6_address` (string) option: `""` (all IPv6 addresses), `"disabled"` or an IPv6 address
+  * `app/preferences` endpoint includes `current_interface_ipv6_address` (string) option: `""` (all IPv6 addresses), `"temporary"` (all temporary IPv6 addresses, Linux, macOS and Windows only), `"disabled"` or an IPv6 address
   * `app/setPreferences` endpoint allows to set all of the above, and returns 400 for an invalid value
 
 ## 2.17.0

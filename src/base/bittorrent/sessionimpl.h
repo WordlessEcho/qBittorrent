@@ -41,6 +41,7 @@
 #include <QtContainerFwd>
 #include <QElapsedTimer>
 #include <QHash>
+#include <QHostAddress>
 #include <QList>
 #include <QMap>
 #include <QMutex>
@@ -72,6 +73,11 @@ class KeyValueDataStorage;
 class NativeSessionExtension;
 
 struct FileSearchResult;
+
+namespace Net
+{
+    class IPAddressWatcher;
+}
 
 namespace BitTorrent
 {
@@ -584,6 +590,9 @@ namespace BitTorrent
         void processBannedIPs(lt::ip_filter &filter);
         QStringList getListeningIPs() const;
         void configureListeningInterface();
+        bool isIPAddressWatcherNeeded() const;
+        void updateIPAddressWatcher();
+        void handleIPAddressesChanged();
         void enableTracker(bool enable);
         void enableBandwidthScheduler();
         void populateAdditionalTrackers();
@@ -902,6 +911,10 @@ namespace BitTorrent
 
         QString m_lastExternalIPv4Address;
         QString m_lastExternalIPv6Address;
+
+        Net::IPAddressWatcher *m_ipAddressWatcher = nullptr;
+        // The addresses that the last listening configuration depends on. See `handleIPAddressesChanged()`.
+        mutable QList<QHostAddress> m_lastWatchedAddresses;
 
         bool m_needUpgradeDownloadPath = false;
 

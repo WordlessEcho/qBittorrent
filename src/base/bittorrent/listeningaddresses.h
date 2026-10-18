@@ -44,6 +44,7 @@ namespace BitTorrent
     // Any other value is one IP address of that family.
     inline const QString BIND_ALL_ADDRESSES;  // the default
     inline const QString BIND_DISABLED = u"disabled"_s;
+    inline const QString BIND_TEMPORARY_IPV6_ADDRESSES = u"temporary"_s;  // IPv6 only
 
     // Returns the value to store for `value`: a special value as it is, or the normalized address.
     // Returns `std::nullopt` if `value` is not valid for `protocol` (IPv4 or IPv6).
@@ -58,8 +59,10 @@ namespace BitTorrent
         bool isIfaceValid = false;  // ignored if `ifaceName` is empty
         // Addresses of the selected interface, or of all interfaces if `ifaceName` is empty
         QList<QHostAddress> addresses;
+        // Usable temporary IPv6 addresses of the selected interface, or of all interfaces
+        QList<QHostAddress> temporaryIPv6Addresses;
         QString ipv4Address;  // `BIND_ALL_ADDRESSES`, `BIND_DISABLED` or an IPv4 address
-        QString ipv6Address;  // `BIND_ALL_ADDRESSES`, `BIND_DISABLED` or an IPv6 address
+        QString ipv6Address;  // also `BIND_TEMPORARY_IPV6_ADDRESSES`, or an IPv6 address
     };
 
     struct ListeningAddresses
@@ -74,6 +77,7 @@ namespace BitTorrent
         QStringList missingAddresses;
         bool hasNoIPv4Address = false;  // "all IPv4 addresses" of the selected interface found none
         bool hasNoIPv6Address = false;  // "all IPv6 addresses" of the selected interface found none
+        bool hasNoTemporaryIPv6Address = false;
     };
 
     // Never gives a wildcard address for a selected interface,

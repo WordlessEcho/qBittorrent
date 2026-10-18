@@ -90,6 +90,7 @@
 #include "base/keyvaluedatastorage.h"
 #include "base/logger.h"
 #include "base/net/downloadmanager.h"
+#include "base/net/ipaddresswatcher.h"
 #include "base/net/proxyconfigurationmanager.h"
 #include "base/preferences.h"
 #include "base/profile.h"
@@ -361,8 +362,23 @@ namespace
             for (const QNetworkAddressEntry &entry : entries)
                 input.addresses.append(entry.ip());
         }
+        // Sort them to avoid listening on the same addresses again
+        // when the OS lists them in another order. See `handleIPAddressesChanged()`.
+        std::ranges::sort(input.addresses, Utils::Net::lessThan);
+
+        if (ipv6Address == BitTorrent::BIND_TEMPORARY_IPV6_ADDRESSES)
+            input.temporaryIPv6Addresses = Utils::Net::temporaryIPv6Addresses(ifaceName);
 
         return input;
+    }
+
+    // The addresses that a listening configuration depends on.
+    // With "any interface", only the temporary IPv6 addresses change the configuration.
+    QList<QHostAddress> watchedAddresses(const BitTorrent::ListeningAddressesInput &input)
+    {
+        QList<QHostAddress> addresses = input.ifaceName.isEmpty() ? QList<QHostAddress>() : input.addresses;
+        addresses.append(input.temporaryIPv6Addresses);
+        return addresses;
     }
 
     constexpr lt::move_flags_t toNative(const MoveStorageMode mode)
@@ -714,6 +730,7 @@ SessionImpl::SessionImpl(QObject *parent)
 
     initializeNativeSession();
     configureComponents();
+    updateIPAddressWatcher();
 
     if (isBandwidthSchedulerEnabled())
         enableBandwidthScheduler();
@@ -2393,7 +2410,8 @@ void SessionImpl::applyNetworkInterfacesSettings(lt::settings_pack &settingsPack
     }
 
     // With a selected interface, `outgoingInterfaces` is empty when the interface has no address
-    // to listen on (e.g. it has no IPv4 address), because no wildcard is used for it.
+    // to listen on (e.g. it has no IPv4 address, or no temporary IPv6 address yet),
+    // because no wildcard is used for it.
     // An empty `outgoing_interfaces` lets libtorrent connect through any interface,
     // so keep outgoing traffic bound to the selected interface to avoid leaking it via another one.
     // With "any interface", connecting through any interface is the expected behavior.
@@ -3573,6 +3591,7 @@ QStringList SessionImpl::getListeningIPs() const
     const QString ifaceName = networkInterface();
     const QString ipv6Address = networkInterfaceIPv6Address();
     const ListeningAddressesInput input = makeListeningAddressesInput(ifaceName, networkInterfaceIPv4Address(), ipv6Address);
+    m_lastWatchedAddresses = watchedAddresses(input);
 
     const ListeningAddresses result = resolveListeningAddresses(input);
 
@@ -3586,6 +3605,13 @@ QStringList SessionImpl::getListeningIPs() const
         LogMsg(tr("The configured network interface has no IPv4 address. Interface: \"%1\"").arg(ifaceName), Log::WARNING);
     if (result.hasNoIPv6Address)
         LogMsg(tr("The configured network interface has no IPv6 address. Interface: \"%1\"").arg(ifaceName), Log::WARNING);
+    if (result.hasNoTemporaryIPv6Address)
+    {
+        if (Utils::Net::isTemporaryIPv6Supported())
+            LogMsg(tr("No temporary IPv6 address found. IPv6 will not be used."), Log::WARNING);
+        else
+            LogMsg(tr("Temporary IPv6 addresses are not supported on this system. IPv6 will not be used."), Log::WARNING);
+    }
     if (result.IPs.isEmpty())
         LogMsg(tr("There is no address to listen on."), Log::WARNING);
 
@@ -3598,6 +3624,49 @@ void SessionImpl::configureListeningInterface()
 {
     m_listenInterfaceConfigured = false;
     configureDeferred();
+}
+
+bool SessionImpl::isIPAddressWatcherNeeded() const
+{
+    if (!Utils::Net::isTemporaryIPv6Supported())
+        return false;
+
+    if (networkInterfaceIPv6Address() == BIND_TEMPORARY_IPV6_ADDRESSES)
+        return true;
+
+    // Libtorrent follows the address changes of an interface given by its name.
+    // In the other cases the addresses of the interface are listed explicitly.
+    return !networkInterface().isEmpty()
+        && ((networkInterfaceIPv4Address() != BIND_ALL_ADDRESSES) || (networkInterfaceIPv6Address() != BIND_ALL_ADDRESSES));
+}
+
+void SessionImpl::updateIPAddressWatcher()
+{
+    if (isIPAddressWatcherNeeded())
+    {
+        if (m_ipAddressWatcher)
+            return;
+
+        m_ipAddressWatcher = new Net::IPAddressWatcher(this);
+        connect(m_ipAddressWatcher, &Net::IPAddressWatcher::addressesChanged
+            , this, &SessionImpl::handleIPAddressesChanged);
+    }
+    else
+    {
+        delete m_ipAddressWatcher;
+        m_ipAddressWatcher = nullptr;
+    }
+}
+
+void SessionImpl::handleIPAddressesChanged()
+{
+    const ListeningAddressesInput input = makeListeningAddressesInput(networkInterface()
+        , networkInterfaceIPv4Address(), networkInterfaceIPv6Address());
+    if (watchedAddresses(input) == m_lastWatchedAddresses)
+        return;
+
+    LogMsg(tr("Network addresses changed. Refreshing the listening addresses."));
+    configureListeningInterface();
 }
 
 int SessionImpl::globalDownloadSpeedLimit() const
@@ -3872,6 +3941,7 @@ void SessionImpl::setNetworkInterface(const QString &iface)
     if (iface != networkInterface())
     {
         m_networkInterface = iface;
+        updateIPAddressWatcher();
         configureListeningInterface();
     }
 }
@@ -3896,6 +3966,7 @@ void SessionImpl::setNetworkInterfaceIPv4Address(const QString &address)
     if (address != networkInterfaceIPv4Address())
     {
         m_networkInterfaceIPv4Address = address;
+        updateIPAddressWatcher();
         configureListeningInterface();
     }
 }
@@ -3910,6 +3981,7 @@ void SessionImpl::setNetworkInterfaceIPv6Address(const QString &address)
     if (address != networkInterfaceIPv6Address())
     {
         m_networkInterfaceIPv6Address = address;
+        updateIPAddressWatcher();
         configureListeningInterface();
     }
 }
